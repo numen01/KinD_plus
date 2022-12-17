@@ -7,46 +7,71 @@ from functools import reduce
 
 def _tf_fspecial_gauss(size, sigma):
     """Function to mimic the 'fspecial' gaussian MATLAB function
+
+    Arguments:
+        size: int, size of the gaussian kernel
+        sigma: float, standard deviation of the gaussian kernel
+
+    Returns:
+        g: a tensor representing the gaussian kernel
     """
+    # Create a grid of indices for the 2D gaussian kernel
     x_data, y_data = np.mgrid[-size//2 + 1:size//2 + 1, -size//2 + 1:size//2 + 1]
 
+    # Expand the dimensions of x_data and y_data to create 4D tensors
     x_data = np.expand_dims(x_data, axis=-1)
     x_data = np.expand_dims(x_data, axis=-1)
 
     y_data = np.expand_dims(y_data, axis=-1)
     y_data = np.expand_dims(y_data, axis=-1)
 
+    # Convert x_data and y_data to tensors
     x = tf.constant(x_data, dtype=tf.float32)
     y = tf.constant(y_data, dtype=tf.float32)
 
+    # Calculate the gaussian kernel
     g = tf.exp(-((x**2 + y**2)/(2.0*sigma**2)))
+    # Normalize the kernel by dividing it by the sum of its elements
+    # Return the gaussian kernel
     return g / tf.reduce_sum(g)
 
 
 def tf_ssim(img1, img2, cs_map=False, mean_metric=True, size=11, sigma=1.5):
+    # Create a gaussian kernel with the specified size and sigma
     window = _tf_fspecial_gauss(size, sigma) # window shape [size, size]
     K1 = 0.01
     K2 = 0.03
     L = 1  # depth of image (255 in case the image has a differnt scale)
     C1 = (K1*L)**2
     C2 = (K2*L)**2
+    # Calculate the mean of img1 using the gaussian kernel
     mu1 = tf.nn.conv2d(img1, window, strides=[1,1,1,1], padding='VALID')
+    # Calculate the mean of img2 using the gaussian kernel
     mu2 = tf.nn.conv2d(img2, window, strides=[1,1,1,1],padding='VALID')
+    # Calculate the square of the mean of img1
     mu1_sq = mu1*mu1
+    # Calculate the square of the mean of img2
     mu2_sq = mu2*mu2
+    # Calculate the product of the means of img1 and img2
     mu1_mu2 = mu1*mu2
+    # Calculate the variance of img1
     sigma1_sq = tf.nn.conv2d(img1*img1, window, strides=[1,1,1,1],padding='VALID') - mu1_sq
+    # Calculate the variance of img2
     sigma2_sq = tf.nn.conv2d(img2*img2, window, strides=[1,1,1,1],padding='VALID') - mu2_sq
+    # Calculate the covariance of img1 and img2
     sigma12 = tf.nn.conv2d(img1*img2, window, strides=[1,1,1,1],padding='VALID') - mu1_mu2
     if cs_map:
+        # Calculate the SSIM index for each pixel
         value = (((2*mu1_mu2 + C1)*(2*sigma12 + C2))/((mu1_sq + mu2_sq + C1)*
                     (sigma1_sq + sigma2_sq + C2)),
                 (2.0*sigma12 + C2)/(sigma1_sq + sigma2_sq + C2))
     else:
+        # Calculate the SSIM index for the entire image
         value = ((2*mu1_mu2 + C1)*(2*sigma12 + C2))/((mu1_sq + mu2_sq + C1)*
                     (sigma1_sq + sigma2_sq + C2))
 
     if mean_metric:
+        # Return the mean SSIM index over all pixels
         value = tf.reduce_mean(value)
     return value
 
