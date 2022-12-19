@@ -75,18 +75,26 @@ def pool_upsamping_3_M(input_feature, level, training, name):
   return conv_up
 
 def Multi_Scale_Module_3_M(input_feature, training, name):
-    
+    # Apply pool_upsamping_3_M function with scale factor of 1 to input_feature
     Scale_1 = pool_upsamping_3_M(input_feature, 1, training, name=name+'pu1')
+    # Apply pool_upsamping_3_M function with scale factor of 2 to input_feature
     Scale_2 = pool_upsamping_3_M(input_feature, 2, training, name=name+'pu2')
+    # Apply pool_upsamping_3_M function with scale factor of 4 to input_feature
     Scale_4 = pool_upsamping_3_M(input_feature, 4, training, name=name+'pu4')
-    
+
+    # Concatenate input_feature, Scale_1, Scale_2, and Scale_4 along the channel axis
     res = tf.concat([input_feature, Scale_1, Scale_2, Scale_4], axis=3)
+    # Apply a 1x1 convolution to res to produce the final multi-scale feature map
     multi_scale_feature = slim.conv2d(res, input_feature.shape[3], [1,1], 1, padding='SAME', scope=name+'multi_scale_feature')
+    # Return the multi-scale feature map
     return multi_scale_feature
 
 def msia_3_M(input_feature, input_i, name, training):
+    # Apply illu_attention_3_M function to input_feature and input_i
     spatial_attention_feature = illu_attention_3_M(input_feature, input_i, name)
+    # Apply Multi_Scale_Module_3_M function to spatial_attention_feature
     msia_feature = Multi_Scale_Module_3_M(spatial_attention_feature, training, name)
+    # Return the msia_feature
     return msia_feature
 
 
