@@ -76,43 +76,66 @@ def tf_ssim(img1, img2, cs_map=False, mean_metric=True, size=11, sigma=1.5):
     return value
 
 def gradient_no_abs(input_tensor, direction):
+    # Define the kernel for the x-direction
     smooth_kernel_x = tf.reshape(tf.constant([[0, 0], [-1, 1]], tf.float32), [2, 2, 1, 1])
+    # Define the kernel for the y-direction by transposing the x-direction kernel
     smooth_kernel_y = tf.transpose(smooth_kernel_x, [1, 0, 2, 3])
+    # Choose the kernel based on the input direction
     if direction == "x":
         kernel = smooth_kernel_x
     elif direction == "y":
         kernel = smooth_kernel_y
+    # Apply the convolution with the chosen kernel
     gradient_orig = tf.nn.conv2d(input_tensor, kernel, strides=[1, 1, 1, 1], padding='SAME')
+    # Get the minimum and maximum gradient values
     grad_min = tf.reduce_min(gradient_orig)
     grad_max = tf.reduce_max(gradient_orig)
+    # Normalize the gradient values by subtracting the minimum value and dividing by the range
     grad_norm = tf.div((gradient_orig - grad_min), (grad_max - grad_min + 0.0001))
+    # Return the normalized gradient tensor
     return grad_norm
 
 def gradient(input_tensor, direction):
+    # Define the kernel for the x-direction
     smooth_kernel_x = tf.reshape(tf.constant([[0, 0], [-1, 1]], tf.float32), [2, 2, 1, 1])
+    # Define the kernel for the y-direction by transposing the x-direction kernel
     smooth_kernel_y = tf.transpose(smooth_kernel_x, [1, 0, 2, 3])
+    # Choose the kernel based on the input direction
     if direction == "x":
         kernel = smooth_kernel_x
     elif direction == "y":
         kernel = smooth_kernel_y
+    # Apply the convolution with the chosen kernel and take the absolute value of the result
     gradient_orig = tf.abs(tf.nn.conv2d(input_tensor, kernel, strides=[1, 1, 1, 1], padding='SAME'))
+    # Get the minimum and maximum gradient values
     grad_min = tf.reduce_min(gradient_orig)
     grad_max = tf.reduce_max(gradient_orig)
+    # Normalize the gradient values by subtracting the minimum value and dividing by the range
     grad_norm = tf.div((gradient_orig - grad_min), (grad_max - grad_min + 0.0001))
+    # Return the normalized gradient tensor
     return grad_norm
 
 
 def gauss_kernel(kernlen=21, nsig=3, channels=1):
+    # Calculate the interval between values in the 1D Gaussian kernel
     interval = (2*nsig+1.)/(kernlen)
+    # Create an array of equally spaced values between -nsig and nsig
     x = np.linspace(-nsig-interval/2., nsig+interval/2., kernlen+1)
+    # Compute the difference between the CDF values at consecutive elements in x,
+    # resulting in a 1D array representing the PDF of the normal distribution
     kern1d = np.diff(st.norm.cdf(x))
+    # Take the outer product of kern1d with itself to create a 2D Gaussian kernel
     kernel_raw = np.sqrt(np.outer(kern1d, kern1d))
+    # Normalize the kernel by dividing each element by the sum of all elements
     kernel = kernel_raw/kernel_raw.sum()
+    # Convert the kernel to a NumPy array with dtype float32
     out_filter = np.array(kernel, dtype = np.float32)
+    # Reshape the kernel to have shape (kernlen, kernlen, 1, 1)
     out_filter = out_filter.reshape((kernlen, kernlen, 1, 1))
+    # Repeat the kernel along the third axis (channels) to create a kernel tensor with the desired number of channels
     out_filter = np.repeat(out_filter, channels, axis = 2)
+    # Return the kernel tensor
     return out_filter
-
 def tensor_size(tensor):
     from operator import mul
     return reduce(mul, (d.value for d in tensor.get_shape()[1:]), 1)
