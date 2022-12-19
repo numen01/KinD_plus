@@ -9,70 +9,89 @@ from PIL import Image
 import tensorflow as tf
 import numpy as np
 
+# Import helper functions from utils.py
 from utils import *
+# Import the DecomNet and Restoration_net models from model.py
 from model import *
 from glob import glob
 
+# Placeholder for whether or not we are training (True) or testing (False)
 training = tf.placeholder_with_default(False, shape=(), name='training')
 batch_size = 10
 patch_size = 48
 
+# Create a TensorFlow session with GPU memory growth enabled
 config = tf.ConfigProto()
 config.gpu_options.allow_growth = True
 sess=tf.Session(config=config)
-#decomnet input
+
+# Placeholder for the input image to the decomposition network
 input_all = tf.placeholder(tf.float32, [None, None, None, 3], name='input_all')
 
-#restoration net input
+# Placeholders for the inputs to the restoration network
 input_low_r = tf.placeholder(tf.float32, [None, None, None, 3], name='input_low_r')
 input_low_i = tf.placeholder(tf.float32, [None, None, None, 1], name='input_low_i')
 input_high = tf.placeholder(tf.float32, [None, None, None, 3], name='input_high')
 input_high_i = tf.placeholder(tf.float32, [None, None, None, 1], name='input_high_i')
 
+# Run the decomposition network on the input image to get the real and imaginary parts of the Fourier transform
 [R_decom, I_decom] = DecomNet(input_all)
+# Run the restoration network on the low-resolution image, binary mask, and high-resolution image
 output_r = Restoration_net(input_low_r, input_low_i, training)
 
-#network output
+# Outputs of the decomposition and restoration networks
 output_R_all = R_decom
 output_I_all = I_decom
 
-#define loss
-#ssim loss
+# Define the structural similarity (SSIM) loss between the restored image and the high-resolution image
 output_r_1 = output_r[:,:,:,0:1]
 input_high_1 = input_high[:,:,:,0:1]
+# SSIM loss for the first channel (R) of the restored image
 ssim_r_1 = tf_ssim(output_r_1, input_high_1)
+# SSIM loss for the second channel (G) of the restored image
 output_r_2 = output_r[:,:,:,1:2]
 input_high_2 = input_high[:,:,:,1:2]
-ssim_r_2= tf_ssim(output_r_2, input_high_2)
+ssim_r_2 = tf_ssim(output_r_2, input_high_2)
+# SSIM loss for the third channel (B) of the restored image
 output_r_3 = output_r[:,:,:,2:3]
 input_high_3 = input_high[:,:,:,2:3]
 ssim_r_3 = tf_ssim(output_r_3, input_high_3)
+# Average SSIM loss over all channels
 ssim_r = (ssim_r_1 + ssim_r_2 + ssim_r_3)/3.0
 loss_ssim = 1-ssim_r
-#mse loss
-loss_square = tf.reduce_mean(tf.square(output_r  - input_high))#*(1-input_low_i))# * ( 1 - input_low_r ))#* (1- input_low_i)))
-#total loss
+
+# Mean squared error (MSE) loss between the restored image and the high-resolution image
+loss_square = tf.reduce_mean(tf.square(output_r  - input_high))
+# Combine the MSE loss and SSIM loss with weight 1 and 1, respectively
 loss_restoration =  1*loss_square + 1*loss_ssim
 
+# Placeholder for the learning rate
 lr = tf.placeholder(tf.float32, name='learning_rate')
 
-
+# Global step variable for keeping track of the number of training steps
 global_step = tf.get_variable('global_step', [], dtype=tf.int32, initializer=tf.constant_initializer(0), trainable=False)
+
+# Update operations for batch normalization layers
 update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+# Adam optimizer for training the restoration network
 optimizer = tf.train.AdamOptimizer(learning_rate=lr, name='AdamOptimizer')
+# Training operation for the restoration network
 with tf.control_dependencies(update_ops):
     grads = optimizer.compute_gradients(loss_restoration)
     train_op_restoration = optimizer.apply_gradients(grads, global_step=global_step)
-
+# List of trainable variables in the DecomNet
 var_Decom = [var for var in tf.trainable_variables() if 'DecomNet' in var.name]
+# List of trainable variables in the Restoration_net, including batch normalization moving mean and variance variables
 var_restoration = [var for var in tf.trainable_variables() if 'Denoise_Net' in var.name]
 g_list = tf.global_variables()
 bn_moving_vars = [g for g in g_list if 'moving_mean' in g.name]
 bn_moving_vars += [g for g in g_list if 'moving_variance' in g.name]
 var_restoration += bn_moving_vars
 
+# Saver for restoring the restoration network
 saver_restoration = tf.train.Saver(var_list=var_restoration)
 saver_Decom = tf.train.Saver(var_list = var_Decom)
+# Initialize all variables
 sess.run(tf.global_variables_initializer())
 print("[*] Initialize model successfully...")
 
