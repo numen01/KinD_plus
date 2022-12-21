@@ -32,26 +32,37 @@ output_i = Illumination_adjust_net(input_low_i, input_low_i_ratio)
 #define loss
 
 def grad_loss(input_i_low, input_i_high):
+    # Compute x and y gradients of the input and target images
     x_loss = tf.square(gradient_no_abs(input_i_low, 'x') - gradient_no_abs(input_i_high, 'x'))
     y_loss = tf.square(gradient_no_abs(input_i_low, 'y') - gradient_no_abs(input_i_high, 'y'))
+    # Calculate the mean squared difference between the x and y gradients
     grad_loss_all = tf.reduce_mean(x_loss + y_loss)
     return grad_loss_all
 
 loss_grad = grad_loss(output_i, input_high_i)
+# Calculate mean squared error between input and target images
 loss_square = tf.reduce_mean(tf.square(output_i  - input_high_i))
 
+# Calculate total loss as the sum of the gradient loss and mean squared error
 loss_adjust =  loss_square + loss_grad 
 
+# Placeholder for the learning rate
 lr = tf.placeholder(tf.float32, name='learning_rate')
 
+# Adam optimizer to minimize the loss
 optimizer = tf.train.AdamOptimizer(learning_rate=lr, name='AdamOptimizer')
 
+# Get trainable variables for the "DecomNet" and "I_enhance_Net" parts of the model
 var_Decom = [var for var in tf.trainable_variables() if 'DecomNet' in var.name]
 var_adjust = [var for var in tf.trainable_variables() if 'I_enhance_Net' in var.name]
 
+# Saver objects to save trainable variables for the "I_enhance_Net" and "DecomNet" parts of the model
 saver_adjust = tf.train.Saver(var_list=var_adjust)
 saver_Decom = tf.train.Saver(var_list = var_Decom)
+
+# Operation to apply gradient updates to the "I_enhance_Net" part of the model
 train_op_adjust = optimizer.minimize(loss_adjust, var_list = var_adjust)
+# Initialize all global variables
 sess.run(tf.global_variables_initializer())
 print("[*] Initialize model successfully...")
 
@@ -59,38 +70,54 @@ print("[*] Initialize model successfully...")
 ### Based on the decomposition net, we first get the decomposed reflectance maps 
 ### and illumination maps, then train the adjust net.
 ###train_data
+# Lists to store low and high resolution images
 train_low_data = []
 train_high_data = []
+
+# Get filenames of low resolution images
 train_low_data_names = glob('./LOLdataset/our485/low/*.png') 
 train_low_data_names.sort()
+# Get filenames of high resolution images
 train_high_data_names = glob('./LOLdataset/our485/high/*.png') 
 train_high_data_names.sort()
+# Check that the number of low and high resolution images is equal
 assert len(train_low_data_names) == len(train_high_data_names)
 print('[*] Number of training data: %d' % len(train_low_data_names))
+# Load low and high resolution images and store them in lists
 for idx in range(len(train_low_data_names)):
     low_im = load_images(train_low_data_names[idx])
     train_low_data.append(low_im)
     high_im = load_images(train_high_data_names[idx])
     train_high_data.append(high_im)
 
+# Directory where the "DecomNet" model is saved
 pre_decom_checkpoint_dir = './checkpoint/decom_model/'
+# Try to restore the "DecomNet" model
 ckpt_pre=tf.train.get_checkpoint_state(pre_decom_checkpoint_dir)
 if ckpt_pre:
+    # If a saved model is found, restore it and print its path
     print('loaded '+ckpt_pre.model_checkpoint_path)
     saver_Decom.restore(sess,ckpt_pre.model_checkpoint_path)
 else:
+    # If no saved model is found, print a message
     print('No pre_decom_net checkpoint!')
 
+# Initialize two empty lists to store decomposition output data
 decomposed_low_i_data_480 = []
 decomposed_high_i_data_480 = []
+# Iterate through the input data
 for idx in range(len(train_low_data)):
+    # Add an additional dimension to the input data and pass it through the pre-trained model
     input_low = np.expand_dims(train_low_data[idx], axis=0)
     RR, II = sess.run([decom_output_R, decom_output_I], feed_dict={input_decom: input_low})
+    # Squeeze the output data to remove any unnecessary dimensions
     RR0 = np.squeeze(RR)
     II0 = np.squeeze(II)
     print(RR0.shape, II0.shape)
     #decomposed_high_r_data_480.append(result_1_sq)
     decomposed_low_i_data_480.append(II0)
+
+# Repeat the process for the high data
 for idx in range(len(train_high_data)):
     input_high = np.expand_dims(train_high_data[idx], axis=0)
     RR2, II2 = sess.run([decom_output_R, decom_output_I], feed_dict={input_decom: input_high})
@@ -100,47 +127,68 @@ for idx in range(len(train_high_data)):
     #decomposed_high_r_data_480.append(result_1_sq)
     decomposed_high_i_data_480.append(II02)
 
+# Split the decomposition output data into training and evaluation sets
 eval_adjust_low_i_data = decomposed_low_i_data_480[451:480]
 eval_adjust_high_i_data = decomposed_high_i_data_480[451:480]
 
 train_adjust_low_i_data = decomposed_low_i_data_480[0:450]
 train_adjust_high_i_data = decomposed_high_i_data_480[0:450]
 
+# Print the number of training data
 print('[*] Number of training data: %d' % len(train_adjust_high_i_data))
 
+# Set the hyperparameters for training
 learning_rate = 0.0001
 epoch = 2000
 eval_every_epoch = 200
 train_phase = 'adjustment'
+
+# Calculate the number of batches to use during training
 numBatch = len(train_adjust_low_i_data) // int(batch_size)
+# Set the training operation and loss function for the adjustment phase
 train_op = train_op_adjust
 train_loss = loss_adjust
+# Initialize a saver to save and restore the model's variables during training
 saver = saver_adjust
 
+# Set the directory for saving checkpoints during training
 checkpoint_dir = './checkpoint/illumination_adjust_net_retrain/'
+# If the directory does not exist, create it
 if not os.path.isdir(checkpoint_dir):
     os.makedirs(checkpoint_dir)
+# Attempt to load a pre-trained model from the specified directory
 ckpt=tf.train.get_checkpoint_state(checkpoint_dir)
 if ckpt:
+    # If a pre-trained model is found, restore the model's variables
     print('loaded '+ckpt.model_checkpoint_path)
     saver.restore(sess,ckpt.model_checkpoint_path)
 else:
+    # If no pre-trained model is found, print a message
     print("No adjustment net pre model!")
 
+# Set variables that will be used during training
 start_step = 0
 start_epoch = 0
 iter_num = 0
+# Print a message indicating the start of the training process
 print("[*] Start training for phase %s, with start epoch %d start iter %d : " % (train_phase, start_epoch, iter_num))
 
+# Set the directory for saving model output during training
 sample_dir = './illumination_adjust_net_train/'
+# If the directory does not exist, create it
 if not os.path.isdir(sample_dir):
     os.makedirs(sample_dir)
 
+# Initialize the start time for training
 start_time = time.time()
+# Initialize a variable to keep track of the current image being processed
 image_id = 0
 
+# Loop over the number of epochs
 for epoch in range(start_epoch, epoch):
+    # Loop over the number of batches
     for batch_id in range(start_step, numBatch):
+        # Initialize arrays for storing input data
         batch_input_low_i_ratio = np.zeros((batch_size, patch_size, patch_size, 1), dtype="float32")
         batch_input_high_i_ratio = np.zeros((batch_size, patch_size, patch_size, 1), dtype="float32")
         batch_input_low_i = np.zeros((batch_size, patch_size, patch_size, 1), dtype="float32")
@@ -151,21 +199,25 @@ for epoch in range(start_epoch, epoch):
         input_high_i_rand_ratio = np.zeros((batch_size, patch_size, patch_size, 1), dtype="float32")
 
         for patch_id in range(batch_size):
+            # Load and augment a batch of input data
             i_low_data = train_adjust_low_i_data[image_id]
             i_low_expand = np.expand_dims(i_low_data, axis = 2)
             i_high_data = train_adjust_high_i_data[image_id]
             i_high_expand = np.expand_dims(i_high_data, axis = 2)
 
+            # Randomly crop the images
             h, w = train_adjust_low_i_data[image_id].shape
             x = random.randint(0, h - patch_size)
             y = random.randint(0, w - patch_size)
             i_low_data_crop = i_low_expand[x : x+patch_size, y : y+patch_size, :]
             i_high_data_crop = i_high_expand[x : x+patch_size, y : y+patch_size, :]
 
+            # Apply data augmentation to the cropped images
             rand_mode = np.random.randint(0, 7)
             batch_input_low_i[patch_id, :, :, :] = data_augmentation(i_low_data_crop , rand_mode)
             batch_input_high_i[patch_id, :, :, :] = data_augmentation(i_high_data_crop, rand_mode)
 
+            # Calculate the ratio of low intensity to high intensity for the current patch
             ratio = np.mean(i_low_data_crop/(i_high_data_crop+0.0001))
             #print(ratio)
             i_low_data_ratio = np.ones([patch_size,patch_size])*(1/ratio+0.0001)
@@ -175,6 +227,7 @@ for epoch in range(start_epoch, epoch):
             batch_input_low_i_ratio[patch_id, :, :, :] = i_low_ratio_expand
             batch_input_high_i_ratio[patch_id, :, :, :] = i_high_ratio_expand
 
+            # Randomly choose which image to use for training
             rand_mode = np.random.randint(0, 2)
             if rand_mode == 1:
                 input_low_i_rand[patch_id, :, :, :] = batch_input_low_i[patch_id, :, :, :]
@@ -192,6 +245,7 @@ for epoch in range(start_epoch, epoch):
         _, loss = sess.run([train_op, train_loss], feed_dict={input_low_i: input_low_i_rand,input_low_i_ratio: input_low_i_rand_ratio,\
                                                               input_high_i: input_high_i_rand, \
                                                               lr: learning_rate})
+        # Print the loss value for the current iteration
         print("%s Epoch: [%2d] [%4d/%4d] time: %4.4f, loss: %.6f" \
               % (train_phase, epoch + 1, batch_id + 1, numBatch, time.time() - start_time, loss))
         iter_num += 1
