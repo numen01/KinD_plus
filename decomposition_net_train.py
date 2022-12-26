@@ -199,28 +199,41 @@ iter_num = 0
 
 # Print a message indicating the start of training
 print("[*] Start training for phase %s, with start epoch %d start iter %d : " % (train_phase, start_epoch, iter_num))
+# Start the timer
 start_time = time.time()
+# Set the initial image index to 0
 image_id = 0
+# Iterate through the number of epochs
 for epoch in range(start_epoch, epoch):
+    # Iterate through the number of batches
     for batch_id in range(start_step, numBatch):
+        # Initialize arrays for low-resolution and high-resolution batch inputs
         batch_input_low = np.zeros((batch_size, patch_size, patch_size, 3), dtype="float32")
         batch_input_high = np.zeros((batch_size, patch_size, patch_size, 3), dtype="float32")
+        # Iterate through the patches in the current batch
         for patch_id in range(batch_size):
+            # Get the shape of the current low-resolution image
             h, w, _ = train_low_data[image_id].shape
+            # Select a random patch from the image
             x = random.randint(0, h - patch_size)
             y = random.randint(0, w - patch_size)
+            # Select a random data augmentation mode
             rand_mode = random.randint(0, 7)
+            # Apply data augmentation to the selected patch and store it in the batch input array for low-resolution images
             batch_input_low[patch_id, :, :, :] = data_augmentation(train_low_data[image_id][x : x+patch_size, y : y+patch_size, :], rand_mode)
+            # Apply data augmentation to the corresponding patch in the high-resolution image and store it in the batch input array for high-resolution images
             batch_input_high[patch_id, :, :, :] = data_augmentation(train_high_data[image_id][x : x+patch_size, y : y+patch_size, :], rand_mode)
+            # Increment the image index, wrapping around to the start if necessary
             image_id = (image_id + 1) % len(train_low_data)
+            # If the image index has wrapped around, shuffle the low-resolution and high-resolution images
             if image_id == 0:
                 tmp = list(zip(train_low_data, train_high_data))
                 random.shuffle(tmp)
                 train_low_data, train_high_data  = zip(*tmp)
-
+            # Run the training operation, computing the loss and updating the network parameters
         _, loss = sess.run([train_op, train_loss], feed_dict={input_low: batch_input_low, \
                                                               input_high: batch_input_high, \
-                                                              lr: learning_rate})
+                                                            lr: learning_rate})
         print("%s Epoch: [%2d] [%4d/%4d] time: %4.4f, loss: %.6f" \
               % (train_phase, epoch + 1, batch_id + 1, numBatch, time.time() - start_time, loss))
         iter_num += 1
